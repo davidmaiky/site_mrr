@@ -118,12 +118,18 @@
     <main class="main-content" id="main-content">
         <!-- Mobile Header -->
         <header class="mobile-header">
-            <button class="menu-toggle" id="menu-toggle" aria-label="Abrir menu">
+            <button class="menu-toggle" id="menu-toggle" aria-label="Abrir menu" aria-controls="sidebar" aria-expanded="false">
                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
             </button>
             <h1 class="mobile-title">MRR Dashboard</h1>
         </header>
-        
+            <div class="panel-header">
+                <div class="panel-pill-group">
+                    <span class="panel-pill">Dados 2023–2025</span>
+                    <span class="panel-pill" id="selected-filters">Filtrando: Todos os dados</span>
+                </div>
+                <span class="panel-meta" id="panel-records">0 registros carregados</span>
+            </div>        
         <!-- Section: Overview -->
         <section class="section active" id="section-overview">
             <div class="section-header">

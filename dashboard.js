@@ -48,13 +48,27 @@ function applyFilters(){
   updateAll(y);
 }
 
+function updateFilterSummary(y){
+  const year=document.getElementById('filter-year').value;
+  const brand=document.getElementById('filter-brand').value;
+  const category=document.getElementById('filter-category').value;
+  const state=document.getElementById('filter-state').value;
+  const labels=[];
+  if(year!=='all')labels.push(year);
+  if(brand!=='all')labels.push(brand);
+  if(category!=='all')labels.push(category);
+  if(state!=='all')labels.push(state);
+  document.getElementById('selected-filters').textContent='Filtrando: '+(labels.length?labels.join(' • '):'Todos os dados');
+  document.getElementById('panel-records').textContent=FILTERED.length+' registros filtrados';
+}
+
 function getMonths(y){return y==='2023'?M23:y==='2024'?M24:y==='2025'?M25:MONTHS;}
 
 function sumMonths(d,ms){return ms.reduce((a,m)=>a+(d.monthly[m]||0),0);}
 
 // ===== UPDATE ALL =====
 function updateAll(y){
-  updateKPIs(y);updateOverview(y);updateEvolution(y);updateBrands(y);updateGeo(y);updateRanking(y);updateTable(y);
+  updateKPIs(y);updateOverview(y);updateEvolution(y);updateBrands(y);updateGeo(y);updateRanking(y);updateTable(y);updateFilterSummary(y);
 }
 
 // ===== KPIs =====
@@ -381,10 +395,15 @@ function setupMobile(){
   const toggle=document.getElementById('menu-toggle');
   const sidebar=document.getElementById('sidebar');
   let overlay=document.createElement('div');overlay.className='sidebar-overlay';document.body.appendChild(overlay);
-  toggle.addEventListener('click',()=>{sidebar.classList.toggle('open');overlay.classList.toggle('active');});
+  toggle.addEventListener('click',()=>{
+    const isOpen=sidebar.classList.toggle('open');
+    overlay.classList.toggle('active', isOpen);
+    toggle.setAttribute('aria-expanded', String(isOpen));
+  });
   overlay.addEventListener('click',closeMobile);
 }
 function closeMobile(){
   document.getElementById('sidebar').classList.remove('open');
   document.querySelector('.sidebar-overlay').classList.remove('active');
+  document.getElementById('menu-toggle').setAttribute('aria-expanded','false');
 }
