@@ -5,10 +5,12 @@ const M23 = MONTHS.slice(0,12), M24 = MONTHS.slice(12,24), M25 = MONTHS.slice(24
 const REGIONS = {N:['AC','AM','AP','PA','RO','RR','TO'],NE:['AL','BA','CE','MA','PB','PE','PI','RN','SE'],CO:['DF','GO','MS','MT'],SE:['ES','MG','RJ','SP'],S:['PR','RS','SC']};
 const COLORS = {indigo:'#6366f1',violet:'#8b5cf6',cyan:'#06b6d4',emerald:'#10b981',amber:'#f59e0b',rose:'#f43f5e',orange:'#f97316',sky:'#0ea5e9',pink:'#ec4899',lime:'#84cc16'};
 const PALETTE = Object.values(COLORS);
+const THEME_KEY = 'mrr_dashboard_theme';
+const THEMES = {LIGHT:'light', DARK:'dark'};
 const fmt = v => 'R$ '+(v||0).toLocaleString('pt-BR',{minimumFractionDigits:0,maximumFractionDigits:0});
 
 // ===== INIT =====
-fetch('data.json').then(r=>r.json()).then(d=>{RAW=prepareData(d);populateStates();applyFilters();setupNav();setupSort();setupSearch();setupClearFilters();setupExport();setupMobile();});
+fetch('data.json').then(r=>r.json()).then(d=>{RAW=prepareData(d);populateStates();applyFilters();setupNav();setupSort();setupSearch();setupClearFilters();setupExport();setupMobile();initTheme();});
 
 function prepareData(data){
   return data.map(d=>{
@@ -406,4 +408,31 @@ function closeMobile(){
   document.getElementById('sidebar').classList.remove('open');
   document.querySelector('.sidebar-overlay').classList.remove('active');
   document.getElementById('menu-toggle').setAttribute('aria-expanded','false');
+}
+
+function initTheme(){
+  const saved = localStorage.getItem(THEME_KEY);
+  const prefersLight = window.matchMedia('(prefers-color-scheme: light)').matches;
+  const theme = saved || (prefersLight ? THEMES.LIGHT : THEMES.DARK);
+  setTheme(theme);
+  const button = document.getElementById('theme-toggle');
+  if(button){ button.addEventListener('click', toggleTheme); }
+}
+
+function toggleTheme(){
+  const current = document.body.classList.contains('light-mode') ? THEMES.LIGHT : THEMES.DARK;
+  setTheme(current===THEMES.LIGHT ? THEMES.DARK : THEMES.LIGHT);
+}
+
+function setTheme(theme){
+  const isLight = theme===THEMES.LIGHT;
+  document.body.classList.toggle('light-mode', isLight);
+  localStorage.setItem(THEME_KEY, theme);
+  const button = document.getElementById('theme-toggle');
+  if(button){
+    button.textContent = isLight ? '🌙 Modo Escuro' : '☀️ Modo Claro';
+    button.setAttribute('aria-pressed', String(isLight));
+    button.setAttribute('aria-label', isLight ? 'Ativar modo escuro' : 'Ativar modo claro');
+  }
+  if(RAW.length){ updateAll(document.getElementById('filter-year').value); }
 }
