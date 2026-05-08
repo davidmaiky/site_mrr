@@ -1,0 +1,7 @@
+*.xlsx
+*.py
+data_export.json
+.git
+.gitignore
+__pycache__
+*.md
