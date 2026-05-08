@@ -8,7 +8,7 @@ const PALETTE = Object.values(COLORS);
 const fmt = v => 'R$ '+(v||0).toLocaleString('pt-BR',{minimumFractionDigits:0,maximumFractionDigits:0});
 
 // ===== INIT =====
-fetch('data.json').then(r=>r.json()).then(d=>{RAW=d;populateStates();applyFilters();setupNav();setupSort();setupSearch();setupMobile();});
+fetch('data.json').then(r=>r.json()).then(d=>{RAW=d;populateStates();applyFilters();setupNav();setupSort();setupSearch();setupClearFilters();setupExport();setupMobile();});
 
 function populateStates(){
   const s=new Set(RAW.map(d=>d.estado).filter(Boolean));
@@ -239,15 +239,7 @@ function updateRanking(y){
 // ===== TABLE =====
 let tablePage=0,tableSort='total',tableSortDir=-1,tableSearchTerm='';
 function updateTable(y){
-  const ms=getMonths(y);
-  let rows=FILTERED.map(d=>({...d,total:sumMonths(d,ms),y23:sumMonths(d,M23),y24:sumMonths(d,M24),y25:sumMonths(d,M25)}));
-  if(tableSearchTerm)rows=rows.filter(d=>d.distribuidor.toLowerCase().includes(tableSearchTerm));
-  rows.sort((a,b)=>{
-    const va=tableSort==='total'?a.total:tableSort==='2023'?a.y23:tableSort==='2024'?a.y24:tableSort==='2025'?a.y25:tableSort==='distribuidor'?a.distribuidor:tableSort==='marca'?a.marca:tableSort==='estado'?a.estado:tableSort==='categoria'?a.categoria:tableSort==='status'?a.status:a.total;
-    const vb=tableSort==='total'?b.total:tableSort==='2023'?b.y23:tableSort==='2024'?b.y24:tableSort==='2025'?b.y25:tableSort==='distribuidor'?b.distribuidor:tableSort==='marca'?b.marca:tableSort==='estado'?b.estado:tableSort==='categoria'?b.categoria:tableSort==='status'?b.status:b.total;
-    if(typeof va==='string')return tableSortDir*(va.localeCompare(vb));
-    return tableSortDir*(va-vb);
-  });
+  const rows=getTableRows(y);
   const perPage=20,totalPages=Math.ceil(rows.length/perPage);
   tablePage=Math.min(tablePage,totalPages-1);if(tablePage<0)tablePage=0;
   const pageRows=rows.slice(tablePage*perPage,(tablePage+1)*perPage);
@@ -265,6 +257,18 @@ function updateTable(y){
     btn.onclick=()=>{tablePage=i;updateTable(document.getElementById('filter-year').value);};pag.appendChild(btn);
   }
 }
+function getTableRows(y){
+  const ms=getMonths(y);
+  let rows=FILTERED.map(d=>({...d,total:sumMonths(d,ms),y23:sumMonths(d,M23),y24:sumMonths(d,M24),y25:sumMonths(d,M25)}));
+  if(tableSearchTerm)rows=rows.filter(d=>d.distribuidor.toLowerCase().includes(tableSearchTerm));
+  rows.sort((a,b)=>{
+    const va=tableSort==='total'?a.total:tableSort==='2023'?a.y23:tableSort==='2024'?a.y24:tableSort==='2025'?a.y25:tableSort==='distribuidor'?a.distribuidor:tableSort==='marca'?a.marca:tableSort==='estado'?a.estado:tableSort==='categoria'?a.categoria:tableSort==='status'?a.status:a.total;
+    const vb=tableSort==='total'?b.total:tableSort==='2023'?b.y23:tableSort==='2024'?b.y24:tableSort==='2025'?b.y25:tableSort==='distribuidor'?b.distribuidor:tableSort==='marca'?b.marca:tableSort==='estado'?b.estado:tableSort==='categoria'?b.categoria:tableSort==='status'?b.status:b.total;
+    if(typeof va==='string')return tableSortDir*(va.localeCompare(vb));
+    return tableSortDir*(va-vb);
+  });
+  return rows;
+}
 function setupSort(){
   document.querySelectorAll('.sortable').forEach(th=>{
     th.addEventListener('click',()=>{
@@ -280,6 +284,49 @@ function setupSearch(){
     tableSearchTerm=e.target.value.toLowerCase();tablePage=0;
     updateTable(document.getElementById('filter-year').value);
   });
+}
+function setupClearFilters(){
+  document.getElementById('clear-filters').addEventListener('click',clearFilters);
+}
+function setupExport(){
+  document.getElementById('export-csv').addEventListener('click',()=>exportTableCsv(document.getElementById('filter-year').value));
+}
+function clearFilters(){
+  document.getElementById('filter-year').value='all';
+  document.getElementById('filter-brand').value='all';
+  document.getElementById('filter-category').value='all';
+  document.getElementById('filter-state').value='all';
+  tableSearchTerm='';document.getElementById('table-search').value='';
+  applyFilters();
+}
+function csvEscape(value){
+  const text=String(value||'').replace(/"/g,'""');
+  return '"'+text+'"';
+}
+function exportTableCsv(y){
+  const rows=getTableRows(y);
+  const headers=['Rank','Marca','Distribuidor','Categoria','UF','Status','MRR Total','2023','2024','2025','Tendência'];
+  const lines=[headers.map(csvEscape).join(';')];
+  rows.forEach((d,i)=>{
+    const trend=d.y25>d.y24?'Alta':d.y25<d.y24?'Queda':'Estável';
+    lines.push([
+      i+1,
+      d.marca,
+      d.distribuidor,
+      d.categoria,
+      d.estado,
+      d.status,
+      fmt(d.total),
+      fmt(d.y23),
+      fmt(d.y24),
+      fmt(d.y25),
+      trend
+    ].map(csvEscape).join(';'));
+  });
+  const blob=new Blob([lines.join('\n')],{type:'text/csv;charset=utf-8;'});
+  const fileName=`mrr_export_${y}_${document.getElementById('filter-brand').value}_${document.getElementById('filter-category').value}_${document.getElementById('filter-state').value}.csv`.replace(/\s+/g,'_').replace(/[^a-zA-Z0-9_\.-]/g,'');
+  const link=document.createElement('a');link.href=URL.createObjectURL(blob);link.download=fileName;
+  document.body.appendChild(link);link.click();link.remove();
 }
 
 // ===== NAVIGATION =====
