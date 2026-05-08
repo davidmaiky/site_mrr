@@ -8,7 +8,22 @@ const PALETTE = Object.values(COLORS);
 const fmt = v => 'R$ '+(v||0).toLocaleString('pt-BR',{minimumFractionDigits:0,maximumFractionDigits:0});
 
 // ===== INIT =====
-fetch('data.json').then(r=>r.json()).then(d=>{RAW=d;populateStates();applyFilters();setupNav();setupSort();setupSearch();setupClearFilters();setupExport();setupMobile();});
+fetch('data.json').then(r=>r.json()).then(d=>{RAW=prepareData(d);populateStates();applyFilters();setupNav();setupSort();setupSearch();setupClearFilters();setupExport();setupMobile();});
+
+function prepareData(data){
+  return data.map(d=>{
+    const y23=M23.reduce((a,m)=>a+(d.monthly[m]||0),0);
+    const y24=M24.reduce((a,m)=>a+(d.monthly[m]||0),0);
+    const y25=M25.reduce((a,m)=>a+(d.monthly[m]||0),0);
+    return {...d, totals:{y23,y24,y25,all:y23+y24+y25}};
+  });
+}
+function getRowTotal(d,y){
+  if(y==='2023')return d.totals.y23;
+  if(y==='2024')return d.totals.y24;
+  if(y==='2025')return d.totals.y25;
+  return d.totals.all;
+}
 
 function populateStates(){
   const s=new Set(RAW.map(d=>d.estado).filter(Boolean));
@@ -45,9 +60,9 @@ function updateAll(y){
 // ===== KPIs =====
 function updateKPIs(y){
   const ms=getMonths(y);
-  const total=FILTERED.reduce((a,d)=>a+sumMonths(d,ms),0);
-  const visat=FILTERED.filter(d=>d.marca==='VISAT').reduce((a,d)=>a+sumMonths(d,ms),0);
-  const prime=FILTERED.filter(d=>d.marca==='PRIME').reduce((a,d)=>a+sumMonths(d,ms),0);
+  const total=FILTERED.reduce((a,d)=>a+getRowTotal(d,y),0);
+  const visat=FILTERED.filter(d=>d.marca==='VISAT').reduce((a,d)=>a+getRowTotal(d,y),0);
+  const prime=FILTERED.filter(d=>d.marca==='PRIME').reduce((a,d)=>a+getRowTotal(d,y),0);
   const activeClients=FILTERED.filter(d=>d.status!=='INATIVO').length;
   const states=new Set(FILTERED.map(d=>d.estado).filter(Boolean)).size;
   const avgTicket=activeClients?total/activeClients/ms.length:0;
@@ -59,9 +74,9 @@ function updateKPIs(y){
   document.getElementById('kpi-avg-value').textContent=fmt(avgTicket);
   // changes
   if(y!=='all'){
-    const prev=y==='2024'?M23:y==='2025'?M24:null;
-    if(prev){
-      const prevTotal=FILTERED.reduce((a,d)=>a+sumMonths(d,prev),0);
+    const prevYear=y==='2024'?'2023':y==='2025'?'2024':null;
+    if(prevYear){
+      const prevTotal=FILTERED.reduce((a,d)=>a+getRowTotal(d,prevYear),0);
       const pct=prevTotal?((total-prevTotal)/prevTotal*100):0;
       setChange('kpi-total-change',pct);
     }else{setNeutral('kpi-total-change');}
@@ -85,9 +100,23 @@ function gradient(ctx,c1,c2){const g=ctx.createLinearGradient(0,0,0,300);g.addCo
 // ===== OVERVIEW CHARTS =====
 function updateOverview(y){
   const ms=getMonths(y);
-  // Line chart
-  const visatData=ms.map(m=>FILTERED.filter(d=>d.marca==='VISAT').reduce((a,d)=>a+(d.monthly[m]||0),0));
-  const primeData=ms.map(m=>FILTERED.filter(d=>d.marca==='PRIME').reduce((a,d)=>a+(d.monthly[m]||0),0));
+  const visatData=Array(ms.length).fill(0);
+  const primeData=Array(ms.length).fill(0);
+  const stMap={};
+  const catMap={};
+
+  FILTERED.forEach(d=>{
+    const isVisat=d.marca==='VISAT';
+    const rowTotal=getRowTotal(d,y);
+    if(d.estado) stMap[d.estado]=(stMap[d.estado]||0)+rowTotal;
+    catMap[d.categoria]=(catMap[d.categoria]||0)+rowTotal;
+    ms.forEach((m,i)=>{
+      const value=d.monthly[m]||0;
+      if(isVisat) visatData[i]+=value;
+      else primeData[i]+=value;
+    });
+  });
+
   destroyChart('overviewLine');
   const ctx1=document.getElementById('chart-overview-line').getContext('2d');
   CHARTS.overviewLine=new Chart(ctx1,{...chartOpts('line'),data:{labels:ms,datasets:[
@@ -96,27 +125,21 @@ function updateOverview(y){
   ]}});
   CHARTS.overviewLine.options.plugins.legend.display=true;CHARTS.overviewLine.update();
 
-  // Doughnut
   const visatTotal=visatData.reduce((a,b)=>a+b,0);
   const primeTotal=primeData.reduce((a,b)=>a+b,0);
   destroyChart('overviewDoughnut');
   CHARTS.overviewDoughnut=new Chart(document.getElementById('chart-overview-doughnut'),{...chartOpts('doughnut'),data:{labels:['VISAT','PRIME'],datasets:[{data:[visatTotal,primeTotal],backgroundColor:[COLORS.cyan,COLORS.amber],borderWidth:0,hoverOffset:8}]},options:{...chartOpts('doughnut').options,cutout:'70%',plugins:{...chartOpts('doughnut').options.plugins,legend:{display:true,position:'bottom',labels:{color:'#94a3b8',font:{family:'Inter',size:12},padding:16}}}}});
 
-  // Top 5 states
-  const stMap={};FILTERED.forEach(d=>{if(!d.estado)return;stMap[d.estado]=(stMap[d.estado]||0)+sumMonths(d,ms);});
   const top5=Object.entries(stMap).sort((a,b)=>b[1]-a[1]).slice(0,5);
   destroyChart('overviewStates');
   CHARTS.overviewStates=new Chart(document.getElementById('chart-overview-states'),{...chartOpts('bar'),data:{labels:top5.map(s=>s[0]),datasets:[{data:top5.map(s=>s[1]),backgroundColor:PALETTE.slice(0,5),borderRadius:6,borderSkipped:false}]}});
 
-  // Categories
-  const catMap={};FILTERED.forEach(d=>{catMap[d.categoria]=(catMap[d.categoria]||0)+sumMonths(d,ms);});
   destroyChart('overviewCats');
   CHARTS.overviewCats=new Chart(document.getElementById('chart-overview-categories'),{...chartOpts('doughnut'),data:{labels:Object.keys(catMap),datasets:[{data:Object.values(catMap),backgroundColor:[COLORS.indigo,COLORS.emerald,COLORS.rose],borderWidth:0}]},options:{...chartOpts('doughnut').options,cutout:'65%',plugins:{...chartOpts('doughnut').options.plugins,legend:{display:true,position:'bottom',labels:{color:'#94a3b8',font:{family:'Inter',size:11},padding:12}}}}});
 
-  // Yearly
-  const y23=FILTERED.reduce((a,d)=>a+sumMonths(d,M23),0);
-  const y24=FILTERED.reduce((a,d)=>a+sumMonths(d,M24),0);
-  const y25=FILTERED.reduce((a,d)=>a+sumMonths(d,M25),0);
+  const y23=FILTERED.reduce((a,d)=>a+d.totals.y23,0);
+  const y24=FILTERED.reduce((a,d)=>a+d.totals.y24,0);
+  const y25=FILTERED.reduce((a,d)=>a+d.totals.y25,0);
   destroyChart('overviewYearly');
   CHARTS.overviewYearly=new Chart(document.getElementById('chart-overview-yearly'),{...chartOpts('bar'),data:{labels:['2023','2024','2025'],datasets:[{data:[y23,y24,y25],backgroundColor:[COLORS.indigo,COLORS.violet,COLORS.cyan],borderRadius:8,borderSkipped:false}]}});
 }
@@ -124,8 +147,13 @@ function updateOverview(y){
 // ===== EVOLUTION =====
 function updateEvolution(y){
   const ms=getMonths(y);
-  const vData=ms.map(m=>FILTERED.filter(d=>d.marca==='VISAT').reduce((a,d)=>a+(d.monthly[m]||0),0));
-  const pData=ms.map(m=>FILTERED.filter(d=>d.marca==='PRIME').reduce((a,d)=>a+(d.monthly[m]||0),0));
+  const vData=Array(ms.length).fill(0);
+  const pData=Array(ms.length).fill(0);
+
+  FILTERED.forEach(d=>{
+    const arr=d.marca==='VISAT'?vData:pData;
+    ms.forEach((m,i)=>arr[i]+=d.monthly[m]||0);
+  });
   const tData=ms.map((_,i)=>vData[i]+pData[i]);
 
   destroyChart('evoMain');
@@ -135,13 +163,11 @@ function updateEvolution(y){
     {label:'PRIME',data:pData,backgroundColor:COLORS.amber,borderRadius:4,borderSkipped:false}
   ]},options:{...chartOpts('bar').options,scales:{...chartOpts('bar').options.scales,x:{...chartOpts('bar').options.scales.x,stacked:true},y:{...chartOpts('bar').options.scales.y,stacked:true}},plugins:{...chartOpts('bar').options.plugins,legend:{display:true,labels:{color:'#94a3b8',font:{family:'Inter',size:11}}}}}});
 
-  // Cumulative
   let cum=0;const cumData=tData.map(v=>{cum+=v;return cum;});
   destroyChart('evoCum');
   const ctx2=document.getElementById('chart-evolution-cumulative').getContext('2d');
   CHARTS.evoCum=new Chart(ctx2,{...chartOpts('line'),data:{labels:ms,datasets:[{label:'Acumulado',data:cumData,borderColor:COLORS.emerald,backgroundColor:gradient(ctx2,'rgba(16,185,129,0.15)','rgba(16,185,129,0)'),fill:true,tension:0.4,pointRadius:1,borderWidth:2}]}});
 
-  // Monthly change %
   const chg=tData.map((v,i)=>i===0?0:(tData[i-1]?((v-tData[i-1])/tData[i-1]*100):0));
   destroyChart('evoChange');
   CHARTS.evoChange=new Chart(document.getElementById('chart-evolution-change'),{...chartOpts('bar'),data:{labels:ms,datasets:[{data:chg,backgroundColor:chg.map(v=>v>=0?'rgba(16,185,129,0.6)':'rgba(244,63,94,0.6)'),borderRadius:3,borderSkipped:false}]},options:{...chartOpts('bar').options,scales:{...chartOpts('bar').options.scales,y:{...chartOpts('bar').options.scales.y,ticks:{...chartOpts('bar').options.scales.y.ticks,callback:v=>v.toFixed(0)+'%'}}},plugins:{...chartOpts('bar').options.plugins,tooltip:{...chartOpts('bar').options.plugins.tooltip,callbacks:{label:ctx=>ctx.raw.toFixed(1)+'%'}}}}});
@@ -152,8 +178,8 @@ function updateBrands(y){
   const ms=getMonths(y);
   const vClients=FILTERED.filter(d=>d.marca==='VISAT');
   const pClients=FILTERED.filter(d=>d.marca==='PRIME');
-  const vTotal=vClients.reduce((a,d)=>a+sumMonths(d,ms),0);
-  const pTotal=pClients.reduce((a,d)=>a+sumMonths(d,ms),0);
+  const vTotal=vClients.reduce((a,d)=>a+getRowTotal(d,y),0);
+  const pTotal=pClients.reduce((a,d)=>a+getRowTotal(d,y),0);
   document.getElementById('brand-visat-total').textContent=fmt(vTotal);
   document.getElementById('brand-prime-total').textContent=fmt(pTotal);
   document.getElementById('brand-visat-clients').textContent=vClients.length;
@@ -163,21 +189,21 @@ function updateBrands(y){
   document.getElementById('brand-visat-states').textContent=new Set(vClients.map(d=>d.estado).filter(Boolean)).size;
   document.getElementById('brand-prime-states').textContent=new Set(pClients.map(d=>d.estado).filter(Boolean)).size;
 
-  // VISAT line
-  const vLine=ms.map(m=>vClients.reduce((a,d)=>a+(d.monthly[m]||0),0));
+  const vLine=Array(ms.length).fill(0);
+  const pLine=Array(ms.length).fill(0);
+  vClients.forEach(d=>ms.forEach((m,i)=>vLine[i]+=d.monthly[m]||0));
+  pClients.forEach(d=>ms.forEach((m,i)=>pLine[i]+=d.monthly[m]||0));
+
   destroyChart('brandVisat');
   const ctx=document.getElementById('chart-brand-visat').getContext('2d');
   CHARTS.brandVisat=new Chart(ctx,{...chartOpts('line'),data:{labels:ms,datasets:[{data:vLine,borderColor:COLORS.cyan,backgroundColor:gradient(ctx,'rgba(6,182,212,0.15)','rgba(6,182,212,0)'),fill:true,tension:0.4,pointRadius:1,borderWidth:2}]}});
 
-  // PRIME line
-  const pLine=ms.map(m=>pClients.reduce((a,d)=>a+(d.monthly[m]||0),0));
   destroyChart('brandPrime');
   const ctx2=document.getElementById('chart-brand-prime').getContext('2d');
   CHARTS.brandPrime=new Chart(ctx2,{...chartOpts('line'),data:{labels:ms,datasets:[{data:pLine,borderColor:COLORS.amber,backgroundColor:gradient(ctx2,'rgba(245,158,11,0.1)','rgba(245,158,11,0)'),fill:true,tension:0.4,pointRadius:1,borderWidth:2}]}});
 
-  // Top distribuidores
   function topChart(clients,canvasId,key,color){
-    const totals={};clients.forEach(d=>{totals[d.distribuidor]=(totals[d.distribuidor]||0)+sumMonths(d,ms);});
+    const totals={};clients.forEach(d=>{totals[d.distribuidor]=(totals[d.distribuidor]||0)+getRowTotal(d,y);});
     const top=Object.entries(totals).sort((a,b)=>b[1]-a[1]).slice(0,8);
     destroyChart(key);
     CHARTS[key]=new Chart(document.getElementById(canvasId),{...chartOpts('bar'),data:{labels:top.map(t=>t[0].substring(0,18)),datasets:[{data:top.map(t=>t[1]),backgroundColor:color,borderRadius:6,borderSkipped:false}]},options:{...chartOpts('bar').options,indexAxis:'y'}});
@@ -190,39 +216,45 @@ function updateBrands(y){
 function updateGeo(y){
   const ms=getMonths(y);
   const stMap={};const stClients={};
-  FILTERED.forEach(d=>{if(!d.estado||d.estado==='N/A')return;stMap[d.estado]=(stMap[d.estado]||0)+sumMonths(d,ms);stClients[d.estado]=(stClients[d.estado]||0)+1;});
+  const regMap={N:0,NE:0,CO:0,SE:0,S:0};
+
+  FILTERED.forEach(d=>{
+    if(!d.estado||d.estado==='N/A')return;
+    const value=getRowTotal(d,y);
+    stMap[d.estado]=(stMap[d.estado]||0)+value;
+    stClients[d.estado]=(stClients[d.estado]||0)+1;
+    Object.entries(REGIONS).forEach(([r,states])=>{if(states.includes(d.estado))regMap[r]+=value;});
+  });
+
   const sorted=Object.entries(stMap).sort((a,b)=>b[1]-a[1]);
   const maxVal=sorted[0]?sorted[0][1]:1;
 
-  // Bar chart
   destroyChart('geoStates');
   CHARTS.geoStates=new Chart(document.getElementById('chart-geo-states'),{...chartOpts('bar'),data:{labels:sorted.map(s=>s[0]),datasets:[{data:sorted.map(s=>s[1]),backgroundColor:sorted.map((_,i)=>PALETTE[i%PALETTE.length]),borderRadius:6,borderSkipped:false}]}});
 
-  // Regions
-  const regMap={};Object.entries(REGIONS).forEach(([r,states])=>{regMap[r]=FILTERED.filter(d=>states.includes(d.estado)).reduce((a,d)=>a+sumMonths(d,ms),0);});
   const regLabels={N:'Norte',NE:'Nordeste',CO:'Centro-Oeste',SE:'Sudeste',S:'Sul'};
   destroyChart('geoRegions');
   CHARTS.geoRegions=new Chart(document.getElementById('chart-geo-regions'),{...chartOpts('doughnut'),data:{labels:Object.keys(regMap).map(k=>regLabels[k]),datasets:[{data:Object.values(regMap),backgroundColor:[COLORS.emerald,COLORS.amber,COLORS.rose,COLORS.indigo,COLORS.cyan],borderWidth:0}]},options:{...chartOpts('doughnut').options,cutout:'65%',plugins:{...chartOpts('doughnut').options.plugins,legend:{display:true,position:'bottom',labels:{color:'#94a3b8',font:{family:'Inter',size:11},padding:12}}}}});
 
-  // Top states evolution
   const top5St=sorted.slice(0,5).map(s=>s[0]);
+  const y23=top5St.map(st=>FILTERED.filter(d=>d.estado===st).reduce((a,d)=>a+d.totals.y23,0));
+  const y24=top5St.map(st=>FILTERED.filter(d=>d.estado===st).reduce((a,d)=>a+d.totals.y24,0));
+  const y25=top5St.map(st=>FILTERED.filter(d=>d.estado===st).reduce((a,d)=>a+d.totals.y25,0));
   destroyChart('geoEvo');
   CHARTS.geoEvo=new Chart(document.getElementById('chart-geo-evolution'),{...chartOpts('bar'),data:{labels:top5St,datasets:[
-    {label:'2023',data:top5St.map(st=>FILTERED.filter(d=>d.estado===st).reduce((a,d)=>a+sumMonths(d,M23),0)),backgroundColor:COLORS.indigo,borderRadius:4},
-    {label:'2024',data:top5St.map(st=>FILTERED.filter(d=>d.estado===st).reduce((a,d)=>a+sumMonths(d,M24),0)),backgroundColor:COLORS.violet,borderRadius:4},
-    {label:'2025',data:top5St.map(st=>FILTERED.filter(d=>d.estado===st).reduce((a,d)=>a+sumMonths(d,M25),0)),backgroundColor:COLORS.cyan,borderRadius:4}
+    {label:'2023',data:y23,backgroundColor:COLORS.indigo,borderRadius:4},
+    {label:'2024',data:y24,backgroundColor:COLORS.violet,borderRadius:4},
+    {label:'2025',data:y25,backgroundColor:COLORS.cyan,borderRadius:4}
   ]},options:{...chartOpts('bar').options,plugins:{...chartOpts('bar').options.plugins,legend:{display:true,labels:{color:'#94a3b8',font:{family:'Inter',size:11}}}}}});
 
-  // State cards
   const grid=document.getElementById('state-cards-grid');
   grid.innerHTML=sorted.map(([st,val])=>`<div class="state-card"><div class="state-card-header"><span class="state-name">${st}</span><span class="state-clients">${stClients[st]||0} clientes</span></div><div class="state-value">${fmt(val)}</div><div class="state-bar"><div class="state-bar-fill" style="width:${(val/maxVal*100).toFixed(1)}%"></div></div></div>`).join('');
 }
 
 // ===== RANKING =====
 function updateRanking(y){
-  const ms=getMonths(y);
   const totals={};
-  FILTERED.forEach(d=>{const k=d.distribuidor+'|'+d.marca+'|'+d.estado;if(!totals[k])totals[k]={name:d.distribuidor,marca:d.marca,estado:d.estado,total:0};totals[k].total+=sumMonths(d,ms);});
+  FILTERED.forEach(d=>{const k=d.distribuidor+'|'+d.marca+'|'+d.estado;if(!totals[k])totals[k]={name:d.distribuidor,marca:d.marca,estado:d.estado,total:0};totals[k].total+=getRowTotal(d,y);});
   const sorted=Object.values(totals).sort((a,b)=>b.total-a.total);
   const top15=sorted.slice(0,15);
 
@@ -259,7 +291,7 @@ function updateTable(y){
 }
 function getTableRows(y){
   const ms=getMonths(y);
-  let rows=FILTERED.map(d=>({...d,total:sumMonths(d,ms),y23:sumMonths(d,M23),y24:sumMonths(d,M24),y25:sumMonths(d,M25)}));
+  let rows=FILTERED.map(d=>({...d,total:getRowTotal(d,y),y23:d.totals.y23,y24:d.totals.y24,y25:d.totals.y25}));
   if(tableSearchTerm)rows=rows.filter(d=>d.distribuidor.toLowerCase().includes(tableSearchTerm));
   rows.sort((a,b)=>{
     const va=tableSort==='total'?a.total:tableSort==='2023'?a.y23:tableSort==='2024'?a.y24:tableSort==='2025'?a.y25:tableSort==='distribuidor'?a.distribuidor:tableSort==='marca'?a.marca:tableSort==='estado'?a.estado:tableSort==='categoria'?a.categoria:tableSort==='status'?a.status:a.total;
